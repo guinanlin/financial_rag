@@ -1,0 +1,8 @@
+[project]
+sub_id = "5987fa2f"
+name = "mcp_server"
+requires = ["python-3.12"]
+project_type = ""
+
+[preview]
+preview_enable = "disabled"

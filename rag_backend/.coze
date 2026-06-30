@@ -1,0 +1,8 @@
+[project]
+sub_id = "e148a0e3"
+name = "rag_backend"
+requires = ["python-3.12"]
+project_type = ""
+
+[preview]
+preview_enable = "disabled"

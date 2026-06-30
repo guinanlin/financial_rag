@@ -1,0 +1,22 @@
+[project]
+entrypoint = "rag_frontend/index.html"
+requires = ["nodejs-24", "python-3.12"]
+project_type = "web"
+
+[preview]
+preview_enable = "enabled"
+
+[dev]
+build = ["bash", "rag_frontend/scripts/coze-preview-build.sh"]
+run = ["bash", "rag_frontend/scripts/coze-preview-run.sh"]
+
+[deploy]
+build = ["bash", "rag_frontend/scripts/build.sh"]
+run = ["bash", "rag_frontend/scripts/run.sh"]
+
+[deploy.profile]
+kind = "service"
+flavor = "web"
+
+[subprojects]
+path = ["rag_frontend", "rag_backend", "mcp_server"]
