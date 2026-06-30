@@ -13,5 +13,5 @@ export PORT=5000
 fuser -k 5000/tcp 2>/dev/null || true
 sleep 1
 
-echo "[coze-preview-run] Starting Vite dev server on port 5000..."
-exec pnpm exec vite --host 0.0.0.0 --port 5000
+echo "[coze-preview-run] Starting Vite preview server on port 5000..."
+exec pnpm exec vite preview --host 0.0.0.0 --port 5000

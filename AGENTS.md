@@ -115,12 +115,13 @@
 
 ### 预览脚本说明
 - `coze-preview-build.sh`: 安装 pnpm 依赖
-- `coze-preview-run.sh`: 启动 Vite 开发服务器，绑定 0.0.0.0:5000
+- `coze-preview-run.sh`: 先构建前端产物，然后启动 Vite preview 服务器，绑定 0.0.0.0:5000
 
 ### 注意事项
 - 预览服务必须在 5000 端口运行，绑定 0.0.0.0
 - 脚本具有幂等性，会先清理 5000 端口残留进程
-- 前端代理配置将 `/api` 和 `/ws-api` 转发到后端 8000 端口
+- Vite preview 模式支持代理配置，将 `/api` 和 `/ws-api` 转发到后端 8000 端口
+- 相比 Vite dev 模式，preview 模式更稳定，不会在 Coze 代理环境下出现空白页问题
 
 ## 部署配置
 
