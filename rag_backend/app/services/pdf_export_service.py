@@ -37,7 +37,7 @@ class PDFExportService:
         self.margin = 15
         # 中文字体：找到则用 "CJK" 字体族，否则回退到 Helvetica（仅支持 ASCII）
         self._cjk_font_path = _find_cjk_font()
-        self.font_family = "CJK" if self._cjk_font_path else self.font_family
+        self.font_family = "CJK" if self._cjk_font_path else "Helvetica"
 
     def _create_pdf(self) -> FPDF:
         """创建并初始化 FPDF 实例，注册中文字体（若可用）"""
