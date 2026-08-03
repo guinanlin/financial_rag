@@ -765,8 +765,8 @@ class TaxReportService:
                         )
                     )
                     
-                    result = await self.db.execute(delete_stmt)
-                    await self.db.commit()
+                    result = await self.db.session.execute(delete_stmt)
+                    await self.db.session.commit()
                     
                     if result.rowcount > 0:
                         logger.info(f"✅ [税务报告服务] 删除审核请求成功: {result.rowcount}条, report_id={report_id}")
