@@ -100,6 +100,8 @@
 2. **依赖安装**: 前端使用 pnpm install，后端使用 uv pip install -r requirements.txt
 3. **环境变量**: 后端需要配置 .env 文件（参考 .env.example）
 4. **数据库**: 需要先执行 530.sql 初始化数据库结构
+5. **MinIO 不可用**: 沙箱环境无 MinIO 服务，`minio_service.py` 已内置本地文件系统降级（`/tmp/minio_data/`），连接 MinIO 失败时自动切换。上传/下载/删除/列举均支持降级路径
+6. **缺失依赖**: 知识库上传后台处理需要 `langchain-text-splitters`，如遇到 ModuleNotFoundError 需手动安装
 
 ## 预览链路配置
 

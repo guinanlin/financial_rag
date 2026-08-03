@@ -1,10 +1,12 @@
 # app/services/minio_service.py
 import io
 import json
+import os
 import uuid
 import time
 import asyncio
 import logging
+from datetime import datetime
 from typing import Optional, Dict, Any, List
 from minio import Minio
 from minio.error import S3Error
@@ -15,6 +17,9 @@ logger = logging.getLogger(__name__)
 
 
 class MinioService:
+    # 本地文件系统存储根目录（MinIO 不可用时降级）
+    LOCAL_STORAGE_ROOT = "/tmp/minio_data"
+
     def __init__(self):
         self.endpoint = settings.MINIO_ENDPOINT
         self.access_key = settings.MINIO_ACCESS_KEY
@@ -32,9 +37,10 @@ class MinioService:
         
         self._client: Optional[Minio] = None
         self._buckets_initialized = False
+        self._use_local_fs = False  # MinIO 不可用时降级到本地文件系统
     
     def _init_client(self):
-        """初始化 MinIO 客户端"""
+        """初始化 MinIO 客户端（连接失败时自动降级到本地文件系统）"""
         http_client = None
         if not self.verify_ssl:
             import urllib3
@@ -42,13 +48,25 @@ class MinioService:
             http_client = urllib3.PoolManager(cert_reqs=ssl.CERT_NONE)
             logger.info("SSL 证书验证已禁用（支持自签名证书）")
         
-        self._client = Minio(
-            self.endpoint,
-            access_key=self.access_key,
-            secret_key=self.secret_key,
-            secure=self.secure,
-            http_client=http_client
-        )
+        try:
+            self._client = Minio(
+                self.endpoint,
+                access_key=self.access_key,
+                secret_key=self.secret_key,
+                secure=self.secure,
+                http_client=http_client
+            )
+            # 验证连接是否有效
+            self._client.list_buckets()
+            logger.info(f"✅ MinIO 连接成功: {self.endpoint}")
+        except Exception as e:
+            logger.warning(f"⚠️ MinIO 连接失败 ({self.endpoint}): {e}")
+            logger.warning("⚠️ 降级到本地文件系统存储")
+            self._client = None
+            self._use_local_fs = True
+            os.makedirs(self.LOCAL_STORAGE_ROOT, exist_ok=True)
+            os.makedirs(os.path.join(self.LOCAL_STORAGE_ROOT, self.doc_bucket), exist_ok=True)
+            os.makedirs(os.path.join(self.LOCAL_STORAGE_ROOT, self.avatar_bucket), exist_ok=True)
     
     def _resolve_path(self, filename: str, tenant_id: Optional[str] = None) -> str:
         """解析存储路径"""
@@ -191,6 +209,9 @@ class MinioService:
     
     def _ensure_initialized(self):
         """确保客户端和桶已初始化（懒加载）"""
+        if self._use_local_fs:
+            return
+        
         if self._client is None:
             self._init_client()
         
@@ -221,6 +242,14 @@ class MinioService:
         self._ensure_initialized()
         ext = filename.split('.')[-1] if '.' in filename else 'jpg'
         object_name = f"{uuid.uuid4().hex}.{ext}"
+        
+        if self._use_local_fs:
+            local_dir = os.path.join(self.LOCAL_STORAGE_ROOT, self.avatar_bucket)
+            os.makedirs(local_dir, exist_ok=True)
+            local_path = os.path.join(local_dir, object_name)
+            with open(local_path, "wb") as f:
+                f.write(file_bytes)
+            return f"/local-storage/{self.avatar_bucket}/{object_name}"
         
         data_stream = io.BytesIO(file_bytes)
         self._client.put_object(
@@ -292,6 +321,23 @@ class MinioService:
         Returns:
             存储路径标识
         """
+        # 先确保客户端初始化（触发 MinIO 连接检测，失败则降级到本地）
+        if self._client is None:
+            self._init_client()
+        
+        # 本地文件系统降级
+        if self._use_local_fs:
+            resolved_path = self._resolve_path(object_name, tenant_id)
+            local_dir = os.path.join(self.LOCAL_STORAGE_ROOT, self.doc_bucket, os.path.dirname(resolved_path))
+            os.makedirs(local_dir, exist_ok=True)
+            local_path = os.path.join(self.LOCAL_STORAGE_ROOT, self.doc_bucket, resolved_path)
+            def _write_local():
+                with open(local_path, "wb") as f:
+                    f.write(file_bytes)
+            await asyncio.to_thread(_write_local)
+            logger.info(f"[本地存储] upload_document_async: {local_path}")
+            return f"{self.doc_bucket}/{resolved_path}"
+        
         def _do_upload():
             resolved_path = self._resolve_path(object_name, tenant_id)
             logger.info(f"[MinIO异步] upload_document_async: object_name={object_name}, resolved_path={resolved_path}, bucket={self.doc_bucket}")
@@ -360,6 +406,21 @@ class MinioService:
         Returns:
             文件内容
         """
+        # 先确保客户端初始化
+        if self._client is None:
+            self._init_client()
+        
+        # 本地文件系统降级
+        if self._use_local_fs:
+            resolved_name = self._resolve_object_name(object_name)
+            local_path = os.path.join(self.LOCAL_STORAGE_ROOT, self.doc_bucket, resolved_name)
+            def _read_local():
+                with open(local_path, "rb") as f:
+                    return f.read()
+            if os.path.exists(local_path):
+                return await asyncio.to_thread(_read_local)
+            raise FileNotFoundError(f"文件不存在: {local_path}")
+        
         def _do_download():
             resolved_name = self._resolve_object_name(object_name)
             logger.info(f"[MinIO异步] download_document_async: object_name={object_name}, resolved_name={resolved_name}")
@@ -411,6 +472,21 @@ class MinioService:
         Returns:
             None
         """
+        # 先确保客户端初始化
+        if self._client is None:
+            self._init_client()
+        
+        # 本地文件系统降级
+        if self._use_local_fs:
+            resolved_name = self._resolve_object_name(object_name)
+            resolved_path = self._resolve_path(resolved_name, tenant_id)
+            local_path = os.path.join(self.LOCAL_STORAGE_ROOT, self.doc_bucket, resolved_path)
+            def _delete_local():
+                if os.path.exists(local_path):
+                    os.remove(local_path)
+            await asyncio.to_thread(_delete_local)
+            return
+        
         def _do_delete():
             resolved_name = self._resolve_object_name(object_name)
             resolved_path = self._resolve_path(resolved_name, tenant_id)
@@ -421,6 +497,11 @@ class MinioService:
     
     def document_exists(self, object_name: str, tenant_id: Optional[str] = None) -> bool:
         """检查文档是否存在"""
+        if self._use_local_fs:
+            resolved_name = self._resolve_object_name(object_name)
+            resolved_path = self._resolve_path(resolved_name, tenant_id)
+            local_path = os.path.join(self.LOCAL_STORAGE_ROOT, self.doc_bucket, resolved_path)
+            return os.path.exists(local_path)
         try:
             resolved_name = self._resolve_object_name(object_name)
             resolved_path = self._resolve_path(resolved_name, tenant_id)
@@ -485,6 +566,32 @@ class MinioService:
         Returns:
             文档列表
         """
+        # 本地文件系统降级
+        if self._use_local_fs:
+            resolved_prefix = self._resolve_path(prefix, tenant_id) if prefix else ""
+            if self.prefix_path and tenant_id:
+                resolved_prefix = f"{self.prefix_path}/{tenant_id}/" + prefix
+            elif self.prefix_path:
+                resolved_prefix = f"{self.prefix_path}/" + prefix
+            elif tenant_id:
+                resolved_prefix = f"{tenant_id}/" + prefix
+            local_dir = os.path.join(self.LOCAL_STORAGE_ROOT, self.doc_bucket, resolved_prefix) if resolved_prefix else os.path.join(self.LOCAL_STORAGE_ROOT, self.doc_bucket)
+            def _list_local():
+                if not os.path.exists(local_dir):
+                    return []
+                result = []
+                for root, dirs, files in os.walk(local_dir):
+                    for f in files:
+                        file_path = os.path.join(root, f)
+                        rel_path = os.path.relpath(file_path, os.path.join(self.LOCAL_STORAGE_ROOT, self.doc_bucket))
+                        result.append({
+                            "name": rel_path,
+                            "size": os.path.getsize(file_path),
+                            "last_modified": datetime.fromtimestamp(os.path.getmtime(file_path)).isoformat()
+                        })
+                return result
+            return await asyncio.to_thread(_list_local)
+        
         def _do_list():
             resolved_prefix = self._resolve_path(prefix, tenant_id) if prefix else ""
             if self.prefix_path and tenant_id:
