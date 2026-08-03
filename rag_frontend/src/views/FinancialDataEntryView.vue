@@ -680,9 +680,53 @@ onMounted(() => {
 
   calculatePeriodDates()
 
-  loadCurrentYearData()
+  const recordId = route.query.id as string
+
+  if (recordId) {
+
+    loadRecordById(recordId)
+
+  } else {
+
+    loadCurrentYearData()
+
+  }
 
 })
+
+
+
+async function loadRecordById(recordId: string) {
+
+  isLoading.value = true
+
+  try {
+
+    const record = await financialDataApiClient.get(recordId)
+
+    if (record) {
+
+      Object.assign(formData, record)
+
+      updatePeriodDates()
+
+      calculateTax()
+
+    }
+
+  } catch (error: any) {
+
+    console.error('加载记录失败:', error)
+
+    ElMessage.error('加载记录失败')
+
+  } finally {
+
+    isLoading.value = false
+
+  }
+
+}
 
 
 
